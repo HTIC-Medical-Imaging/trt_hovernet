@@ -7,8 +7,7 @@ import torch.nn.functional as F
 
 from collections import OrderedDict
 import sys
-sys.path.insert(0,'/workspace/Inference_rt/models/hovernet/')
-from utils import crop_op, crop_to_shape
+from .utils import crop_op, crop_to_shape
 from config import Config
 
 
