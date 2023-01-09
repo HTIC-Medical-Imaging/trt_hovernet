@@ -1,0 +1,10 @@
+fastremap==1.13.3
+Glymur==0.12.1
+lxml==4.9.2
+natsort==8.2.0
+tifffile==2022.10.10
+termcolor==2.1.1
+scikit-image==0.19.3
+imgaug==0.4.0
+config==0.5.1
+pycuda==2022.2.2
