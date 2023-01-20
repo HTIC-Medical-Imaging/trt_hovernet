@@ -1,10 +1,10 @@
 import tensorrt as trt
 import pycuda.driver as cuda
 import numpy as np
-import pycuda.autoinit 
+# import pycuda.autoinit 
 
-def allocate_buffers(engine, batch_size, data_type):
-
+def allocate_buffers(engine, batch_size, data_type,gpu_context):
+   gpu_context.push()
    """
    This is the function to allocate buffers for input and output in the device
    Args:
