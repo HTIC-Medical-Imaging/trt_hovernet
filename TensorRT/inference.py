@@ -3,8 +3,7 @@ import pycuda.driver as cuda
 import numpy as np
 # import pycuda.autoinit 
 
-def allocate_buffers(engine, batch_size, data_type,gpu_context):
-   gpu_context.push()
+def allocate_buffers(engine, batch_size, data_type):
    """
    This is the function to allocate buffers for input and output in the device
    Args:

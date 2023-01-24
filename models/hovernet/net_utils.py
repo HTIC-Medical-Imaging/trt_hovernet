@@ -11,6 +11,11 @@ from .utils import crop_op, crop_to_shape
 from config import Config
 
 
+@torch.jit.interface
+class ModuleInterface(torch.nn.Module):
+    def forward(self, input: torch.Tensor) -> torch.Tensor: # `input` has a same name in Sequential forward
+        pass
+
 ####
 class Net(nn.Module):
     """ A base class provides a common weight initialisation scheme."""
@@ -44,7 +49,7 @@ class TFSamepaddingLayer(nn.Module):
     """
 
     def __init__(self, ksize, stride):
-        super(TFSamepaddingLayer, self).__init__()
+        super().__init__()
         self.ksize = ksize
         self.stride = stride
 
@@ -61,8 +66,8 @@ class TFSamepaddingLayer(nn.Module):
             pad_val_start = pad // 2
             pad_val_end = pad - pad_val_start
             padding = (pad_val_start, pad_val_end, pad_val_start, pad_val_end)
-        # print(x.shape, padding)
-        x = F.pad(x, padding, "constant", 0)
+        # print(padding,type(padding))
+        x = F.pad(x, padding, "constant", 0.0)
         # print(x.shape)
         return x
 
@@ -143,7 +148,9 @@ class DenseBlock(Net):
 
     def forward(self, prev_feat):
         for idx in range(self.nr_unit):
-            new_feat = self.units[idx](prev_feat)
+            submodule: ModuleInterface = self.units[idx]
+            new_feat = submodule.forward(prev_feat)
+            # new_feat = self.units[idx](prev_feat)
             prev_feat = crop_to_shape(prev_feat, new_feat)
             prev_feat = torch.cat([prev_feat, new_feat], dim=1)
         prev_feat = self.blk_bna(prev_feat)
@@ -247,7 +254,9 @@ class ResidualBlock(Net):
     def out_ch(self):
         return self.unit_ch[-1]
 
-    def forward(self, prev_feat, freeze=False):
+    
+
+    def forward(self, prev_feat, freeze:bool=False):
         if self.shortcut is None:
             shortcut = prev_feat
         else:
@@ -256,10 +265,16 @@ class ResidualBlock(Net):
         for idx in range(0, len(self.units)):
             new_feat = prev_feat
             if self.training:
-                with torch.set_grad_enabled(not freeze):
-                    new_feat = self.units[idx](new_feat)
+                grad_mode = torch.is_grad_enabled()
+                torch.set_grad_enabled(not freeze)
+                if True:
+                    submodule: ModuleInterface = self.units[idx]
+                    new_feat = submodule.forward(new_feat)
+                    # new_feat = self.units[idx](new_feat)
+                torch.set_grad_enabled(grad_mode)
             else:
-                new_feat = self.units[idx](new_feat)
+                submodule: ModuleInterface = self.units[idx]
+                new_feat = submodule.forward(new_feat)
             prev_feat = new_feat + shortcut
             shortcut = prev_feat
         feat = self.blk_bna(prev_feat)

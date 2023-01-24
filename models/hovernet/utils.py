@@ -8,7 +8,7 @@ from matplotlib import cm
 
 
 ####
-def crop_op(x, cropping, data_format="NCHW"):
+def crop_op(x, cropping:tuple, data_format:str="NCHW"):
     """Center crop image.
 
     Args:
@@ -29,7 +29,7 @@ def crop_op(x, cropping, data_format="NCHW"):
 
 
 ####
-def crop_to_shape(x, y, data_format="NCHW"):
+def crop_to_shape(x, y, data_format:str="NCHW"):
     """Centre crop x so that x has shape of y. y dims must be smaller than x dims.
 
     Args:
@@ -51,7 +51,7 @@ def crop_to_shape(x, y, data_format="NCHW"):
 
 
 ####
-def xentropy_loss(true, pred, reduction="mean"):
+def xentropy_loss(true, pred, reduction:str="mean"):
     """Cross entropy loss. Assumes NHWC!
 
     Args:

@@ -83,7 +83,7 @@ class SectionProxy:
         shutil.copy(self.jp2path,destdir)
         return self.check_local_jp2(destdir)
 
-    def check_mmap(self, mmapdir = ''):
+    def check_mmap(self, mmapdir = './storage/mmapdir'):
         loc,bn = os.path.split(self.jp2path)
         namepart = ".".join(bn.split('.')[:-1])
         
@@ -222,6 +222,9 @@ class TileAccessor:
         
         self._tnail = None
 
+    def _wsi(self):
+        if self._tifdata is None and self.sectionproxy.modes['jp2']:
+            self._tifdata=self._jp2handle[:]
         
     def get_thumbnail(self,res=128):
         assert 2**int(math.log(res,2))==res, "res expected as 2^n"
@@ -256,7 +259,11 @@ class TileAccessor:
         return tile_r*self.ntiles_c+tile_c
         
     def get_tile_extent(self,tilenum):
-        assert tilenum<self.ntiles
+        if tilenum>=self.ntiles:
+            # assert tilenum<self.ntiles, f"failed tilenum < self.ntiles ({tilenum},{self.ntiles})"
+            raise StopIteration
+        assert tilenum>=0
+        
         tile_r = tilenum//self.ntiles_c
         tile_c = tilenum % self.ntiles_c
         tl = Point(self.tilespan.w*tile_c,self.tilespan.h*tile_r)
@@ -265,7 +272,9 @@ class TileAccessor:
         return Extent(tl,br)
     
     def get_padded_extent(self,ext):
-        padding = self.padding
+        padding_r = self.padding
+        padding_c = self.padding
+        
         nc = self.imagespan.w
         nr = self.imagespan.h
 
@@ -274,29 +283,35 @@ class TileAccessor:
         c1 = ext.point1.x
         c2 = ext.point2.x
 
+        if r2-r1 < self.tilespan.h+2*self.padding:
+            padding_r = (self.tilespan.h+2*self.padding-(r2-r1))//2
+            
+        if c2-c1 < self.tilespan.w+2*self.padding:
+            padding_c = (self.tilespan.w+2*self.padding-(c2-c1))//2
+            
         mirror_top = 0
-        if r1 - padding < 0:
-            mirror_top = -(r1 - padding)
+        if r1 - padding_r < 0:
+            mirror_top = -(r1 - padding_r)
         else:
-            r1 = r1-padding
+            r1 = r1-padding_r
 
         mirror_left = 0
-        if c1 - padding < 0:
-            mirror_left = -(c1 - padding)
+        if c1 - padding_c < 0:
+            mirror_left = -(c1 - padding_c)
         else:
-            c1 = c1-padding
+            c1 = c1-padding_c
 
         mirror_bot = 0
-        if r2 + padding >= nr:
-            mirror_bot = (r2 + padding) - nr
+        if r2 + padding_r >= nr:
+            mirror_bot = (r2 + padding_r) - nr
         else:
-            r2 = r2+padding
+            r2 = r2+padding_r
 
         mirror_right = 0
-        if c2 + padding >= nc:
-            mirror_right = (c2 + padding) - nc
+        if c2 + padding_c >= nc:
+            mirror_right = (c2 + padding_c) - nc
         else:
-            c2 = c2+padding
+            c2 = c2+padding_c
             
         df = int(self.dec_factor)    
         ext2 = Extent(Point(c1*df,r1*df),Point(c2*df,r2*df))
@@ -310,8 +325,9 @@ class TileAccessor:
         
         # print('access %d' % tilenum)
         ext = self.get_tile_extent(tilenum)
-
+        
         ext2, region, mirrorvals = self.get_padded_extent(ext)
+        # print(to_box(ext),to_box(ext2),to_box(region),mirrorvals)
         
         imgurl = None
 
@@ -372,7 +388,7 @@ def workerfunc(accessor,tilenum):
     return accessor[tilenum]
 
 class SectionMemmap:
-    def __init__(self,sectionproxy,mmapdir='/storage/users/akash/store/mmapcache',force=False):
+    def __init__(self,sectionproxy,mmapdir='./storage/mmapdir',force=False):
         assert sectionproxy.modes['jp2'] is True
         self.sectionproxy = sectionproxy
         loc,bn = os.path.split(self.sectionproxy.jp2path)
@@ -444,12 +460,16 @@ class TileIterator:
             self.end = min(self.end, offset + limit)
             
     def __iter__(self):
-        self.current = self.start-1
+        self.current = -1
         return self
     
     def  __next__(self):
-        self.current+=1
-        if  self.current < self.end:            
+        if self.current is None: 
+            self.current=0
+        else:
+            self.current+=1
+            
+        if  self.current < self.end:      
             return self.accessor[self.current]
         else:
             raise StopIteration

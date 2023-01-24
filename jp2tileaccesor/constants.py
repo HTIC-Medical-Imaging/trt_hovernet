@@ -16,11 +16,15 @@ from .utils import dict_filter
 import io
 from PIL import Image
 import numpy as np
+import json
+import os
 
 def getbraindetails(brainid,seriesType,secnumber=None):
     url=restAPI+apiurl['brainDetails']%(brainid)
-
-    res = requests.get(url).json()
+    if not os.path.exists('15_10.json'):
+        res = requests.get(url).json()
+    else:
+        res = json.load(open('15_10.json'))
     out = res['thumbNail'][seriesType]
 
     if secnumber is not None:
