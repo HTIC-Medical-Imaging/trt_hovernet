@@ -10,9 +10,12 @@ from torch.utils.data import Dataset, DataLoader, Subset
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
 import time
+from  torch.cuda.amp import autocast
 
 
 ##########
+
+psnr = []
 def trt_version():
     return trt.__version__
 
@@ -87,9 +90,23 @@ class TileDataset(Dataset):
     def __getitem__(self,index):
         return torch.Tensor(self.accessor[index][0].copy())
 
+
+import models.hovernet.net_desc as net
+from run_utils.utils import convert_pytorch_checkpoint
+
+def getmodel(model_path = 'hovernet_fast_pannuke_type_tf2pytorch.tar'):
     
+    hovernet = net.HoVerNet(nr_types = 6,mode='fast')
+    saved_state_dict = torch.load(model_path)["desc"]
+    saved_state_dict = convert_pytorch_checkpoint(saved_state_dict)
+
+    hovernet.load_state_dict(saved_state_dict, strict=True)
+    
+    return hovernet.eval()
+
 
 def run_infer_load(dl,device):
+    
     if device > 8:
         device = device%8
     dev = torch.device('cuda:'+str(device))
@@ -97,44 +114,28 @@ def run_infer_load(dl,device):
     torch.cuda.set_device(dev)
     
     start_load = time.perf_counter()
-    with open("./hbp_hover_net/hovernet_256_64_best.plan", "rb") as f, trt.Runtime(TRT_LOGGER) as runtime:
-        engine = runtime.deserialize_cuda_engine(f.read())
-    print(f'model load({device}):',time.perf_counter()-start_load)
     
-    out = []
+    mdl_gpu_half = getmodel().half().to(dev)
+    mdl_gpu = getmodel().to(dev)
+    
     start_i = time.perf_counter()
-    for idx,batch in enumerate(dl):
-        
-        patch_imgs_gpu = batch.permute((0,3,1,2)).float().to(dev)
-                
-        pred_dict = OrderedDict()
-        
-        patch_imgs_gpu = patch_imgs_gpu.contiguous()
-        d_input = patch_imgs_gpu.data_ptr()
-        
-        pred_tensor = torch.empty(
-            size = (batch.shape[0],10,164,164) , 
-            dtype = torch.float32, 
-                device = dev)
-        
-        pred_tensor = pred_tensor.to(dev)
-        d_output = pred_tensor.data_ptr()
+    
+    _ = torch.set_grad_enabled(False)
+    with autocast():
+        for idx,batch in enumerate(dl):
 
-        with engine.create_execution_context() as context:
-            context.execute_v2(bindings=[int(d_input), int(d_output)])
-
-#         out_i = pred_tensor.reshape((batch.shape[0],10, 164, 164))   
-#         out.append(out_i.cpu())
-        if idx%10==0:
-            print(device,idx,time.perf_counter()-start_i)
-        
-        if (idx==100):
-            print("approx time to complete",len(dl)*(time.perf_counter()-start_i)/100)
+            patch_imgs_gpu = batch.permute((0,3,1,2)).to(dev)
+            fp32_patch = mdl_gpu(patch_imgs_gpu)
+            patch_imgs_gpu = batch.permute((0,3,1,2)).half().to(dev)
+            fp16_patch = mdl_gpu_half(patch_imgs_gpu)
+            psnr.append()
+    #         if idx%10==0:
+    #             print(device,idx,time.perf_counter()-start_i)
             
-    return out,device
+    return device
 
 
-def main():
+def getdataset():
     proxy = SectionProxy()
 
     proxy.check_local_jp2()
@@ -156,10 +157,16 @@ def main():
 # %%
 
     ds = TileDataset(accessor)
-    print(len(ds))
+    return ds
 
+
+def main():
+    
+    ds = getdataset()
+    print(len(ds))
+    
     num_loaders = 8
-    batch_siz = 64
+    batch_siz = 128
 
     partsiz = len(ds)//num_loaders
     # print(partsiz)
@@ -172,13 +179,17 @@ def main():
 
         loaders.append(DataLoader(ds_sub, batch_size = batch_siz, num_workers=12, drop_last=True))
 
+    
     print('start')
     # concurrent
     start_time = time.perf_counter()
-    with ThreadPoolExecutor(max_workers=num_loaders) as executor:
-        for v,d in executor.map(run_infer_load,loaders,range(num_loaders)):
-            pass
-
+    if num_loaders > 1:
+        with ThreadPoolExecutor(max_workers=num_loaders) as executor:
+            for v,d in executor.map(run_infer_load,loaders,range(num_loaders)):
+                pass
+    else:
+        run_infer_load(loaders[0],0)
+        
     end_time = time.perf_counter()
     print(end_time-start_time)
 

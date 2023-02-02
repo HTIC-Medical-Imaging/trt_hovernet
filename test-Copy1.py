@@ -3,9 +3,43 @@ from jp2tileaccesor.multi_res_Tiling import (
             SectionProxy, TileAccessor, Span, SectionMemmap, TileIterator
             )
 
+proxy = SectionProxy()
+
+proxy.check_local_jp2()
+
+if not proxy.check_mmap():
+    mmap = SectionMemmap(proxy)
+    mmap.create()
+
+print(proxy.check_mmap())
+
+# %%
+
+outsiz = 164,164
+insiz = 256,256
+hs = insiz[0]-outsiz[0]
+padsiz = hs//2
+accessor = TileAccessor(proxy,tilespan = Span(*outsiz),padding=padsiz, use_iip=False)
+
+# %%
+
+iterator = TileIterator(accessor)
+print(accessor.tilespan)
+
 import torch
 
 from torch.utils.data import Dataset, DataLoader, Subset
+
+class TileDataset(Dataset):
+    def __init__(self,accessor):
+        self.accessor = accessor
+        
+    def __len__(self):
+        return len(self.accessor)
+    
+    def __getitem__(self,index):
+        return torch.Tensor(self.accessor[index][0].copy())
+
 
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
@@ -76,19 +110,6 @@ TRT_LOGGER = trt.Logger(min_severity =trt.ILogger.INTERNAL_ERROR)
 
 from collections import OrderedDict
 
-
-class TileDataset(Dataset):
-    def __init__(self,accessor):
-        self.accessor = accessor
-        
-    def __len__(self):
-        return len(self.accessor)
-    
-    def __getitem__(self,index):
-        return torch.Tensor(self.accessor[index][0].copy())
-
-    
-
 def run_infer_load(dl,device):
     if device > 8:
         device = device%8
@@ -96,11 +117,9 @@ def run_infer_load(dl,device):
     
     torch.cuda.set_device(dev)
     
-    start_load = time.perf_counter()
     with open("./hbp_hover_net/hovernet_256_64_best.plan", "rb") as f, trt.Runtime(TRT_LOGGER) as runtime:
         engine = runtime.deserialize_cuda_engine(f.read())
-    print(f'model load({device}):',time.perf_counter()-start_load)
-    
+        
     out = []
     start_i = time.perf_counter()
     for idx,batch in enumerate(dl):
@@ -123,67 +142,49 @@ def run_infer_load(dl,device):
         with engine.create_execution_context() as context:
             context.execute_v2(bindings=[int(d_input), int(d_output)])
 
-#         out_i = pred_tensor.reshape((batch.shape[0],10, 164, 164))   
-#         out.append(out_i.cpu())
+        out_i = pred_tensor.reshape((batch.shape[0],10, 164, 164))   
+        out.append(out_i.cpu())
         if idx%10==0:
             print(device,idx,time.perf_counter()-start_i)
         
-        if (idx==100):
-            print("approx time to complete",len(dl)*(time.perf_counter()-start_i)/100)
-            
     return out,device
 
 
-def main():
-    proxy = SectionProxy()
+ds = TileDataset(accessor)
+print(len(ds))
 
-    proxy.check_local_jp2()
+num_loaders = 16
+batch_siz = 64
 
-    if not proxy.check_mmap():
-        mmap = SectionMemmap(proxy)
-        mmap.create()
+partsiz = len(ds)//num_loaders
+# print(partsiz)
 
-    print(proxy.check_mmap())
+loaders = []
+for ii in range(num_loaders):
+    # print(ii*partsiz,(ii+1)*partsiz)
+    part = range(ii*partsiz,(ii+1)*partsiz)
+    ds_sub = Subset(ds, part)
+
+    loaders.append(DataLoader(ds_sub, batch_size = batch_siz, num_workers=12, drop_last=True))
+
+print('start')
+# concurrent
+start_time = time.perf_counter()
+with ThreadPoolExecutor(max_workers=num_loaders) as executor:
+    for v,d in executor.map(run_infer_load,loaders,range(num_loaders)):
+        pass
+
+end_time = time.perf_counter()
+print(end_time-start_time)
 
 # %%
 
-    outsiz = 164,164
-    insiz = 256,256
-    hs = insiz[0]-outsiz[0]
-    padsiz = hs//2
-    accessor = TileAccessor(proxy,tilespan = Span(*outsiz),padding=padsiz, use_iip=False)
-
-# %%
-
-    ds = TileDataset(accessor)
-    print(len(ds))
-
-    num_loaders = 8
-    batch_siz = 64
-
-    partsiz = len(ds)//num_loaders
-    # print(partsiz)
-
-    loaders = []
-    for ii in range(num_loaders):
-        # print(ii*partsiz,(ii+1)*partsiz)
-        part = range(ii*partsiz,(ii+1)*partsiz)
-        ds_sub = Subset(ds, part)
-
-        loaders.append(DataLoader(ds_sub, batch_size = batch_siz, num_workers=12, drop_last=True))
-
-    print('start')
-    # concurrent
-    start_time = time.perf_counter()
-    with ThreadPoolExecutor(max_workers=num_loaders) as executor:
-        for v,d in executor.map(run_infer_load,loaders,range(num_loaders)):
+if False:
+    # sequential
+    for dl in loaders:
+        for idx,batch in enumerate(tqdm(dl)):
             pass
 
-    end_time = time.perf_counter()
-    print(end_time-start_time)
-
-# %%
-
-if __name__=="__main__":
-    main()
-
+if False:
+    for elt in iter(tqdm(ds)):
+        pass
