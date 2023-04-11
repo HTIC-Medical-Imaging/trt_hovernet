@@ -1,1 +1,1 @@
-docker run -p 8888:8888 --gpus all --ipc=host --ulimit memlock=-1 -it --rm -v $(pwd)/:/workspace -v /storage/users/dockeruser/data:/data torch_starter:base tail -f /dev/null
+docker run -p 8888:8888 --gpus all --ipc=host --ulimit memlock=-1 -it --rm -v $(pwd)/workspace:/workspace -v /storage/users/dockeruser/data:/data -v $(pwd)/setup_base/auth:/auth torch_starter:base sh /workspace/startjupyter.sh
