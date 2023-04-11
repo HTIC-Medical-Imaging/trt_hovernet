@@ -1,1 +1,1 @@
-# trt_hovernet
+Base environment for pytorch from nvcr

@@ -1,1 +1,1 @@
-docker build --rm -t "tensorrt:test" ./setup_base/.
+docker build --rm -t "torch_starter:base" ./setup_base/.

@@ -7,6 +7,5 @@ termcolor==2.1.1
 scikit-image==0.19.3
 imgaug==0.4.0
 config==0.5.1
-pycuda==2022.2.2
 nvidia-ml-py3==7.352.0
 gdown==4.6.0
